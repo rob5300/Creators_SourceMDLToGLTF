@@ -27,7 +27,7 @@ def ReadFile(context, filepath):
     for ob in bpy.context.scene.objects:
         for mat_slot in ob.material_slots:
             if(mat_slot.material != None):
-                SetupMaterial(mat_slot.material, FindImageWithName(ob.active_material.name, "color"))
+                SetupMaterial(mat_slot.material, FindImageWithName(mat_slot.material.name, "color"))
 
     bpy.ops.export_scene.gltf()
     
@@ -58,7 +58,19 @@ def SetupMaterial(material, mainTex):
     tex_node = nodes.new(type="ShaderNodeTexImage")
     if(mainTex != None):
         tex_node.image = getCyclesImage(mainTex)
+        CreateMaskTexture(tex_node.image)
         links.new(tex_node.outputs["Color"], principled.inputs[0])
+
+def HasAlpha(image):
+
+    return None
+
+def CreateMaskTexture(image):
+    mask = image.copy()
+    mask.name = image.name + "_ColourMask"
+    mask.pixels[0] = 255
+
+    return None
 
 # ImportHelper is a helper class, defines filename and
 # invoke() function which calls the file selector.
@@ -68,7 +80,7 @@ from bpy.types import Operator
 
 class ImportSomeData(Operator, ImportHelper):
     """Import fbx props using a .vmf"""
-    bl_idname = "import_vmf.import_props"  # important since its how bpy.ops.import_test.some_data is constructed
+    bl_idname = "qc_convert.import_qc"  # important since its how bpy.ops.import_test.some_data is constructed
     bl_label = "Convert QC"
 
     # ImportHelper mixin class uses this
