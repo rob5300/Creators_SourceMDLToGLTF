@@ -11,6 +11,7 @@ bl_info = {
 import bpy
 import os
 import re
+import json
 from bpy_extras.io_utils import ImportHelper
 from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy.types import Operator
@@ -20,23 +21,28 @@ images = None
 vmtsPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VMT"
 vmts = None
 outputPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\Output"
+qcPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source MDL\QC"
 
-logfilename = r"vmtcoloursoutput"
+logfilename = r"cosmeticdata.json"
+data = {}
 
 param1 = "___$color2"
 param2 = "$colortint_base"
 
 num_regex = "([^_, ,\D][0-9]{1,3})"
             
-def ReadQC(context, filepath):
-    bpy.ops.import_scene.smd(filepath = filepath)
+def ReadQC(filePath):
+    bpy.ops.import_scene.smd(filepath = filePath)
 
     bpy.ops.object.select_all(action="DESELECT")
 
     for ob in bpy.context.scene.objects:
-         if(("lod" in ob.name and "lod_1" not in ob.name) or ("VTA" in ob.name)):
+        if(("lod" in ob.name and "lod_1" not in ob.name) or ("VTA" in ob.name)):
             ob.select_set(True)
             bpy.ops.object.delete()
+
+        elif("skeleton" in ob.name):
+            data[os.path.basename(filePath)] = ob.name
 
     for ob in bpy.context.scene.objects:
         for mat_slot in ob.material_slots:
@@ -47,11 +53,11 @@ def ReadQC(context, filepath):
                 if(matImage == None):
                     matImage = GetMainTextureNameFromVMT(mat_slot.material.name)
 
-                SetupMaterial(mat_slot.material, FindImageWithName(matImage, "color"))
+                SetupMaterial(mat_slot.material, os.path.join(imagesPath, matImage + ".png"))
 
-    #bpy.ops.export_scene.gltf()
-    
-    return {'FINISHED'}
+    bpy.ops.export_scene.gltf(export_format='GLB', export_image_format='JPEG', export_animations=False, filepath=os.path.join(outputPath, os.path.splitext(os.path.basename(filePath))[0] + ".glb"))
+    bpy.ops.wm.read_homefile(use_empty=True)
+    return
 
 def FindImageWithName(name, suffix):
     global images #Stupid
@@ -110,53 +116,64 @@ def SetupMaterial(material, mainTex):
     color = GetHexFromVMT(os.path.join(vmtsPath, material.name + ".vmt"))
     if(color != ""):
         #We have a material that should require a mask. Lets make one
-        CreateMaskTexture(getCyclesImage(mainTex), os.path.join(outputPath, "{material.name}_mask"))
+        CreateMaskTexture(getCyclesImage(mainTex), os.path.join(outputPath, f"{material.name}_mask"))
 
 def CreateMaskTexture(image, destination):
     mask = image.copy()
     mask.name = image.name + "_ColourMask"
-    channels = image.channels
-    size = image.size[0]*image.size[1]
+    channels = mask.channels
 
     i = channels - 1
-    while(i < size):
-        alpha = image.pixels[i]
+    maskpixels = list(mask.pixels)
+    imagepixels = image.pixels[:]
+    for i in range(channels - 1, len(maskpixels), channels):
+        alpha = imagepixels[i]
 
-        for x in range(i - channels - 1, channels - 1):
-            mask.pixels[x] = alpha
+        for x in range(i - (channels - 1), i):
+            maskpixels[x] = alpha
 
-        i = i + channels
+        maskpixels[i] = 1
 
-    mask.save_render(destination)
 
-class ImportSomeData(Operator, ImportHelper):
+    mask.pixels[:] = maskpixels
+    mask.update()
+    mask.save_render(destination + ".png")
+
+class ConvertQCs(Operator):
     """Import fbx props using a .vmf"""
     bl_idname = "qc_convert.import_qc"  # important since its how bpy.ops.import_test.some_data is constructed
-    bl_label = "Convert QC"
-
-    # ImportHelper mixin class uses this
-    filename_ext = ".qc"
-
-    filter_glob: StringProperty(
-        default="*.qc",
-        options={'HIDDEN'},
-        maxlen=255,  # Max internal buffer length, longer would be clamped.
-    )
+    bl_label = "Convert QCs"
 
     def execute(self, context):
-        return ReadQC(context, self.filepath)
+        subdirs = os.listdir(qcPath)
+
+        for p in subdirs:
+            FindQCs(os.path.join(qcPath, p))
+
+        jsonfile = open(f"{outputPath}/data.json", "w+")
+        jsonfile.write(json.dumps(data))
+        jsonfile.close()
+        return {'FINISHED'}
+
+def FindQCs(path):
+    if(os.path.isdir(path)):
+        subdirs = os.listdir(path)
+        for f in subdirs:
+            FindQCs(os.path.join(path,f))
+    elif(path.endswith(".qc")):
+        ReadQC(path)
 
 # Only needed if you want to add into a dynamic menu
 def menu_func_import(self, context):
-    self.layout.operator(ImportSomeData.bl_idname, text="Convert QC")
+    self.layout.operator(ConvertQCs.bl_idname, text="Convert QCs")
 
 def register():
-    bpy.utils.register_class(ImportSomeData)
-    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    bpy.utils.register_class(ConvertQCs)
+    bpy.types.TOPBAR_MT_file.append(menu_func_import)
 
 def unregister():
-    bpy.utils.unregister_class(ImportSomeData)
-    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.utils.unregister_class(ConvertQCs)
+    bpy.types.TOPBAR_MT_file.remove(menu_func_import)
 
 def getCyclesImage(imgpath):
     """Avoid reloading an image that has already been loaded"""
