@@ -23,6 +23,8 @@ vmts = None
 outputPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\Output"
 qcPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source MDL\QC"
 
+classNames = ["demo", "engineer", "heavy", "medic", "pyro", "scout", "sniper", "soldier", ]
+
 logfilename = r"cosmeticdata.json"
 data = {}
 
@@ -30,8 +32,9 @@ param1 = "___$color2"
 param2 = "$colortint_base"
 
 num_regex = "([^_, ,\D][0-9]{1,3})"
-            
-def ReadQC(filePath):
+
+def ReadQC(context, filePath):
+    print("Reading QC " + filePath)
     bpy.ops.import_scene.smd(filepath = filePath)
 
     bpy.ops.object.select_all(action="DESELECT")
@@ -53,10 +56,32 @@ def ReadQC(filePath):
                 if(matImage == None):
                     matImage = GetMainTextureNameFromVMT(mat_slot.material.name)
 
-                SetupMaterial(mat_slot.material, os.path.join(imagesPath, matImage + ".png"))
+                if(matImage != ""):
+                    if(not matImage.endswith(".png") and not matImage.endswith(".jpg")):
+                        matImage += ".png"
 
-    bpy.ops.export_scene.gltf(export_format='GLB', export_image_format='JPEG', export_animations=False, filepath=os.path.join(outputPath, os.path.splitext(os.path.basename(filePath))[0] + ".glb"))
-    bpy.ops.wm.read_homefile(use_empty=True)
+                    SetupMaterial(mat_slot.material, os.path.join(imagesPath, matImage))
+
+    #Manage sorting multi class cosmetics into their specific folders
+    baseQCName = os.path.splitext(os.path.basename(filePath))[0]
+    exportPath = ""
+    for x in range(0, len(classNames)):
+        newName = baseQCName.replace("_" + classNames[x], "")
+        if(newName != baseQCName):
+            candidateFolder = os.path.join(outputPath, classNames[x])
+            if(not os.path.exists(candidateFolder)):
+                os.mkdir(candidateFolder)
+
+            exportPath = os.path.join(outputPath, classNames[x], newName + ".glb")
+            break
+
+    if(exportPath == ""):
+        exportPath = os.path.join(outputPath, baseQCName + ".glb")
+
+    bpy.ops.export_scene.gltf(export_format='GLB', export_image_format='JPEG', export_animations=False, filepath=exportPath)
+    
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
     return
 
 def FindImageWithName(name, suffix):
@@ -84,16 +109,20 @@ def FindVMTWithName(name):
     return ""
 
 def GetMainTextureNameFromVMT(vmtName):
-    vmt = open(os.path.join(vmtsPath, vmtName + ".vmt"), mode="r")
-    vmt_text = vmt.readlines()
+    joinedPath = os.path.join(vmtsPath, vmtName + ".vmt")
+    if(os.path.exists(joinedPath)):
+        vmt = open(os.path.join(vmtsPath, vmtName + ".vmt"), mode="r")
+        vmt_text = vmt.readlines()
 
-    for line in vmt_text:
-        if("$basetexture" in line):
-            splitLine = line.split('"')
-            for i in range(0, len(splitLine)):
-                if("/" in splitLine[i]):
-                    pathSplit = splitLine[i].split("/")
-                    return pathSplit[len(pathSplit) - 1]
+        for line in vmt_text:
+            if("$basetexture" in line):
+                splitLine = line.split('"')
+                for i in range(0, len(splitLine)):
+                    if("/" in splitLine[i]):
+                        pathSplit = splitLine[i].split("/")
+                        return pathSplit[len(pathSplit) - 1]
+    else:
+        return ""
         
 def SetupMaterial(material, mainTex):
     material.use_nodes = True
@@ -139,29 +168,30 @@ def CreateMaskTexture(image, destination):
     mask.update()
     mask.save_render(destination + ".png")
 
+
 class ConvertQCs(Operator):
     """Import fbx props using a .vmf"""
-    bl_idname = "qc_convert.import_qc"  # important since its how bpy.ops.import_test.some_data is constructed
-    bl_label = "Convert QCs"
-
+    bl_idname = "qc_convert.import_qc"
+    bl_label = "Convert QC"
+    
     def execute(self, context):
         subdirs = os.listdir(qcPath)
 
         for p in subdirs:
-            FindQCs(os.path.join(qcPath, p))
+            FindQCs(os.path.join(qcPath, p), context)
 
         jsonfile = open(f"{outputPath}/data.json", "w+")
         jsonfile.write(json.dumps(data))
         jsonfile.close()
         return {'FINISHED'}
 
-def FindQCs(path):
+def FindQCs(path, context):
     if(os.path.isdir(path)):
         subdirs = os.listdir(path)
         for f in subdirs:
-            FindQCs(os.path.join(path,f))
+            FindQCs(os.path.join(path,f), context)
     elif(path.endswith(".qc")):
-        ReadQC(path)
+        ReadQC(context, path)
 
 # Only needed if you want to add into a dynamic menu
 def menu_func_import(self, context):
