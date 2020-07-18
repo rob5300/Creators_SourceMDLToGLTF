@@ -15,24 +15,36 @@ import json
 from bpy_extras.io_utils import ImportHelper
 from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy.types import Operator
+from datetime import datetime
 
 imagesPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VTF\PNG"
 images = None
 vmtsPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VMT"
 vmts = None
-outputPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\Output2"
+outputPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\Output"
 qcPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source MDL\QC"
 
 classNames = ["demo", "engineer", "heavy", "medic", "pyro", "scout", "sniper", "soldier", "spy"]
 
 data = {}
 
+currentQCdata = {}
+
 param1 = "___$color2"
 param2 = "$colortint_base"
+blendParam = "$blendtintcoloroverbase"
+blendEnabledParam = "$blendtintbybasealpha"
+
+blendtintbybasealpha = ""
+blendtintcoloroverbase = ""
+colortint_base = ""
 
 num_regex = "([^_, ,\D][0-9]{1,3})"
+blendtintcolour_regex = r'"([0-9.]+)\"'
 
 def ReadQC(context, filePath):
+    global currentQCdata
+    global data
     print("Reading QC " + filePath)
 
     #Manage sorting multi class cosmetics into their specific folders
@@ -65,7 +77,7 @@ def ReadQC(context, filePath):
             bpy.ops.object.delete()
 
         elif("skeleton" in ob.name):
-            data[os.path.basename(filePath)] = ob.name
+            currentQCdata["skeleton"] = ob.name
 
     for ob in bpy.context.scene.objects:
         for mat_slot in ob.material_slots:
@@ -80,10 +92,14 @@ def ReadQC(context, filePath):
                     if(not matImage.endswith(".png") and not matImage.endswith(".jpg")):
                         matImage += ".png"
 
+                    currentQCdata["materials"] = {}
                     SetupMaterial(mat_slot.material, os.path.join(imagesPath, matImage))
 
     bpy.ops.export_scene.gltf(export_format='GLB', export_image_format='JPEG', export_animations=False, filepath=exportPath)
     
+    data[baseQCName] = currentQCdata
+    currentQCdata = {}
+
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
     return
@@ -146,14 +162,26 @@ def SetupMaterial(material, mainTex):
         links.new(tex_node.outputs["Color"], principled.inputs[0])
 
     #Find vmt for this material. If there is a color in this, output it and also try to produce a mask image for this materials main texture.
-    color = GetHexFromVMT(os.path.join(vmtsPath, material.name + ".vmt"))
-    if(color != ""):
-        #We have a material that should require a mask. Lets make one
-        CreateMaskTexture(getCyclesImage(mainTex), os.path.join(outputPath, f"{material.name}_mask"))
+    GetVMTInfo(os.path.join(vmtsPath, material.name + ".vmt"))
+    currentQCdata["materials"][material.name] = {}
+    thisMaterialData = currentQCdata["materials"][material.name]
 
-def CreateMaskTexture(image, destination):
+    if(blendtintbybasealpha != None and (float(blendtintbybasealpha) == 1.0 or float(blendtintbybasealpha) == 1)):
+        #We have a material that should require a mask. Lets make one
+        thisMaterialData["colourMask"] = f"{material.name}_mask"
+        thisMaterialData["additive"] = (blendtintcoloroverbase != None and float(blendtintcoloroverbase) > 0)
+        thisMaterialData["colourtint_base"] = colortint_base
+        CreateMaskTexture(getCyclesImage(mainTex), f"{material.name}_mask")
+
+def CreateMaskTexture(image, name):
+    targetPath = os.path.join(outputPath, "Masks")
+
+    if(not os.path.exists(targetPath)):
+        os.mkdir(targetPath)
+
     # Don't make a mask when it exists already.
-    if(not os.path.exists(destination + ".png")):
+    targetPath = os.path.join(targetPath, name + ".png")
+    if(not os.path.exists(targetPath)):
         mask = image.copy()
         mask.name = image.name + "_ColourMask"
         channels = mask.channels
@@ -172,8 +200,7 @@ def CreateMaskTexture(image, destination):
 
         mask.pixels[:] = maskpixels
         mask.update()
-        mask.save_render(destination + ".png")
-
+        mask.save_render(targetPath)
 
 class ConvertQCs(Operator):
     """Import fbx props using a .vmf"""
@@ -186,7 +213,12 @@ class ConvertQCs(Operator):
         for p in subdirs:
             FindQCs(os.path.join(qcPath, p), context)
 
-        jsonfile = open(f"{outputPath}/data.json", "w+")
+        now = datetime.now()
+
+        dt_string = now.strftime("%d-%m-%Y_%H-%M")
+        dataPath = os.path.join(outputPath, f"data_{dt_string}.json")
+
+        jsonfile = open(dataPath, "w+")
         jsonfile.write(json.dumps(data))
         jsonfile.close()
         return {'FINISHED'}
@@ -218,14 +250,31 @@ def getCyclesImage(imgpath):
             return img
     return bpy.data.images.load(imgpath)
 
-def GetHexFromVMT(vmt_path):
+def GetVMTInfo(vmt_path):
     filehandle = open(vmt_path, mode='r')
     file_text = filehandle.readlines()
+
+    global blendtintcoloroverbase
+    blendtintcoloroverbase = None
+
+    global blendtintbybasealpha
+    blendtintbybasealpha = None
+
+    global colortint_base
+    colortint_base = None
 
     for line in file_text:
         if param1 in line or param2 in line:
             if "255 255 255" not in line and "{" in line and "}" in line and "resultVar" not in line and "srcVar" not in line:
-                hex = GetHexColour(line)
+                colortint_base = GetHexColour(line)
+        elif blendParam in line:
+            result = re.findall(blendtintcolour_regex, line)
+            if(result != None and len(result) > 0):
+                blendtintcoloroverbase = result[0].replace('"', "")
+        elif blendEnabledParam in line:
+            result_b = re.findall(blendtintcolour_regex, line)
+            if(result_b != None and len(result_b) > 0):
+                blendtintbybasealpha = result_b[0].replace('"', "")
 
 def GetHexColour(line):
     toreturn = ""
