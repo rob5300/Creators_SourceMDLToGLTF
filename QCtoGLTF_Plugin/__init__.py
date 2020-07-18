@@ -20,12 +20,11 @@ imagesPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VTF\PNG"
 images = None
 vmtsPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VMT"
 vmts = None
-outputPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\Output"
+outputPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\Output2"
 qcPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source MDL\QC"
 
-classNames = ["demo", "engineer", "heavy", "medic", "pyro", "scout", "sniper", "soldier", ]
+classNames = ["demo", "engineer", "heavy", "medic", "pyro", "scout", "sniper", "soldier", "spy"]
 
-logfilename = r"cosmeticdata.json"
 data = {}
 
 param1 = "___$color2"
@@ -35,6 +34,27 @@ num_regex = "([^_, ,\D][0-9]{1,3})"
 
 def ReadQC(context, filePath):
     print("Reading QC " + filePath)
+
+    #Manage sorting multi class cosmetics into their specific folders
+    baseQCName = os.path.splitext(os.path.basename(filePath))[0]
+    exportPath = ""
+    for x in range(0, len(classNames)):
+        newName = baseQCName.replace("_" + classNames[x], "")
+        if(newName != baseQCName):
+            candidateFolder = os.path.join(outputPath, classNames[x])
+            if(not os.path.exists(candidateFolder)):
+                os.mkdir(candidateFolder)
+
+            exportPath = os.path.join(outputPath, classNames[x], newName + ".glb")
+            break
+
+    if(exportPath == ""):
+        # If the planned export path exists already just skip this model.
+        exportPath = os.path.join(outputPath, baseQCName + ".glb")
+
+    if(os.path.exists(exportPath)):
+        return
+
     bpy.ops.import_scene.smd(filepath = filePath)
 
     bpy.ops.object.select_all(action="DESELECT")
@@ -61,22 +81,6 @@ def ReadQC(context, filePath):
                         matImage += ".png"
 
                     SetupMaterial(mat_slot.material, os.path.join(imagesPath, matImage))
-
-    #Manage sorting multi class cosmetics into their specific folders
-    baseQCName = os.path.splitext(os.path.basename(filePath))[0]
-    exportPath = ""
-    for x in range(0, len(classNames)):
-        newName = baseQCName.replace("_" + classNames[x], "")
-        if(newName != baseQCName):
-            candidateFolder = os.path.join(outputPath, classNames[x])
-            if(not os.path.exists(candidateFolder)):
-                os.mkdir(candidateFolder)
-
-            exportPath = os.path.join(outputPath, classNames[x], newName + ".glb")
-            break
-
-    if(exportPath == ""):
-        exportPath = os.path.join(outputPath, baseQCName + ".glb")
 
     bpy.ops.export_scene.gltf(export_format='GLB', export_image_format='JPEG', export_animations=False, filepath=exportPath)
     
@@ -148,25 +152,27 @@ def SetupMaterial(material, mainTex):
         CreateMaskTexture(getCyclesImage(mainTex), os.path.join(outputPath, f"{material.name}_mask"))
 
 def CreateMaskTexture(image, destination):
-    mask = image.copy()
-    mask.name = image.name + "_ColourMask"
-    channels = mask.channels
+    # Don't make a mask when it exists already.
+    if(not os.path.exists(destination + ".png")):
+        mask = image.copy()
+        mask.name = image.name + "_ColourMask"
+        channels = mask.channels
 
-    i = channels - 1
-    maskpixels = list(mask.pixels)
-    imagepixels = image.pixels[:]
-    for i in range(channels - 1, len(maskpixels), channels):
-        alpha = imagepixels[i]
+        i = channels - 1
+        maskpixels = list(mask.pixels)
+        imagepixels = image.pixels[:]
+        for i in range(channels - 1, len(maskpixels), channels):
+            alpha = imagepixels[i]
 
-        for x in range(i - (channels - 1), i):
-            maskpixels[x] = alpha
+            for x in range(i - (channels - 1), i):
+                maskpixels[x] = alpha
 
-        maskpixels[i] = 1
+            maskpixels[i] = 1
 
 
-    mask.pixels[:] = maskpixels
-    mask.update()
-    mask.save_render(destination + ".png")
+        mask.pixels[:] = maskpixels
+        mask.update()
+        mask.save_render(destination + ".png")
 
 
 class ConvertQCs(Operator):
