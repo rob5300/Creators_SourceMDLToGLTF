@@ -79,6 +79,7 @@ def ReadQC(context, filePath):
         elif("skeleton" in ob.name):
             currentQCdata["skeleton"] = ob.name
 
+    currentQCdata["materials"] = {}
     for ob in bpy.context.scene.objects:
         for mat_slot in ob.material_slots:
             if(mat_slot.material != None):
@@ -92,7 +93,6 @@ def ReadQC(context, filePath):
                     if(not matImage.endswith(".png") and not matImage.endswith(".jpg")):
                         matImage += ".png"
 
-                    currentQCdata["materials"] = {}
                     SetupMaterial(mat_slot.material, os.path.join(imagesPath, matImage))
 
     bpy.ops.export_scene.gltf(export_format='GLB', export_image_format='JPEG', export_animations=False, filepath=exportPath)
@@ -111,7 +111,7 @@ def FindImageWithName(name, suffix):
 
     for file in images:
         fname = os.path.splitext(os.path.basename(file))[0]
-        if(fname == name or fname == "{name}_{suffix}"):
+        if(fname == name or fname == f"{name}_{suffix}"):
             return os.path.join(imagesPath, file)
 
     return None
@@ -182,8 +182,7 @@ def CreateMaskTexture(image, name):
     # Don't make a mask when it exists already.
     targetPath = os.path.join(targetPath, name + ".png")
     if(not os.path.exists(targetPath)):
-        mask = image.copy()
-        mask.name = image.name + "_ColourMask"
+        mask = bpy.data.images.new(image.name + "_ColourMask", image.size[0], image.size[1], alpha=True, is_data=True)
         channels = mask.channels
 
         i = channels - 1
