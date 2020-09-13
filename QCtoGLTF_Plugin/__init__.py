@@ -2,8 +2,8 @@ bl_info = {
     "name": "QC Convert",
     "category": "Import",
     "blender": (2, 80, 0),
-    "author": "Robert Straub (robertstraub.co.uk)",
-    "version": (0, 0, 1),
+    "author": "Robert Straub (robertstraub.co.uk) | Creators.TF",
+    "version": (1, 0, 0),
     "location": "File > Import",
     "description": "",
 }
@@ -25,6 +25,18 @@ outputPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\Output"
 qcPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source MDL\QC"
 
 classNames = ["demo", "engineer", "heavy", "medic", "pyro", "scout", "sniper", "soldier", "spy"]
+
+classNameToFolderName = {
+    "demo": "Demoman",
+    "engineer": "Engineer",
+    "heavy": "Heavy",
+    "medic": "Medic",
+    "pyro": "Pyro",
+    "scout": "Scout",
+    "sniper": "Sniper",
+    "soldier": "Soldier",
+    "spy": "Spy"
+}
 
 data = {}
 
@@ -53,11 +65,11 @@ def ReadQC(context, filePath):
     for x in range(0, len(classNames)):
         newName = baseQCName.replace("_" + classNames[x], "")
         if(newName != baseQCName):
-            candidateFolder = os.path.join(outputPath, classNames[x])
+            candidateFolder = os.path.join(outputPath, classNameToFolderName[classNames[x]])
             if(not os.path.exists(candidateFolder)):
                 os.mkdir(candidateFolder)
 
-            exportPath = os.path.join(outputPath, classNames[x], newName + ".glb")
+            exportPath = os.path.join(candidateFolder, newName + ".glb")
             break
 
     if(exportPath == ""):
