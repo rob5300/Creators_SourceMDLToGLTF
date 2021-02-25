@@ -1,9 +1,9 @@
 bl_info = {
     "name": "QC Convert",
     "category": "Import",
-    "blender": (2, 80, 0),
+    "blender": (2, 91, 0),
     "author": "Robert Straub (robertstraub.co.uk) | Creators.TF",
-    "version": (1, 0, 0),
+    "version": (1, 1, 1),
     "location": "File > Import",
     "description": "",
 }
@@ -18,6 +18,7 @@ from bpy.types import Operator
 from datetime import datetime
 
 imagesPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VTF\PNG"
+roughnessPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\roughness"
 images = None
 vmtsPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VMT"
 vmts = None
@@ -46,9 +47,11 @@ param1 = "___$color2"
 param2 = "$colortint_base"
 blendParam = "$blendtintcoloroverbase"
 blendEnabledParam = "$blendtintbybasealpha"
+phongMaskParam = "$basemapalphaphongmask"
 
 blendtintbybasealpha = ""
 blendtintcoloroverbase = ""
+basemapalphaphongmask = ""
 colortint_base = ""
 
 num_regex = "([^_, ,\D][0-9]{1,3})"
@@ -84,7 +87,7 @@ def ReadQC(context, filePath):
     bpy.ops.object.select_all(action="DESELECT")
 
     for ob in bpy.context.scene.objects:
-        if(("lod" in ob.name and "lod_1" not in ob.name) or ("VTA" in ob.name)):
+        if(("lod" in ob.name and "lod_1" not in ob.name) or ("VTA" in ob.name) or ("_physics" in ob.name)):
             ob.select_set(True)
             bpy.ops.object.delete()
 
@@ -101,11 +104,13 @@ def ReadQC(context, filePath):
                 if(matImage == None):
                     matImage = GetMainTextureNameFromVMT(mat_slot.material.name)
 
-                if(matImage != ""):
+                if(matImage != None and matImage != ""):
                     if(not matImage.endswith(".png") and not matImage.endswith(".jpg")):
                         matImage += ".png"
 
-                    SetupMaterial(mat_slot.material, os.path.join(imagesPath, matImage))
+                    SetupMaterial(mat_slot.material, matImage)
+                else:
+                    print("Failed to get the main texture for the object: " + baseQCName)
 
     bpy.ops.export_scene.gltf(export_format='GLB', export_image_format='JPEG', export_animations=False, filepath=exportPath)
     
@@ -117,7 +122,7 @@ def ReadQC(context, filePath):
     return
 
 def FindImageWithName(name, suffix):
-    global images #Stupid
+    global images
     if(images == None):
         images = os.listdir(imagesPath)
 
@@ -128,8 +133,18 @@ def FindImageWithName(name, suffix):
 
     return None
 
+def TryGetRoughnessImage(name):
+    roughnessImages = os.listdir(roughnessPath)
+
+    for file in roughnessImages:
+        fname = os.path.splitext(os.path.basename(file))[0]
+        if(fname in name):
+            return getCyclesImage(os.path.join(roughnessPath, file))
+    
+    return None
+
 def FindVMTWithName(name):
-    global vmts #Stupid
+    global vmts
     if(vmts == None):
         vmts = os.listdir(vmtsPath)
     
@@ -147,16 +162,21 @@ def GetMainTextureNameFromVMT(vmtName):
         vmt_text = vmt.readlines()
 
         for line in vmt_text:
-            if("$basetexture" in line):
+            lineLower = line.lower()
+            if("$basetexture" in lineLower):
                 splitLine = line.split('"')
                 for i in range(0, len(splitLine)):
                     if("/" in splitLine[i]):
                         pathSplit = splitLine[i].split("/")
                         return pathSplit[len(pathSplit) - 1]
+                    if("\\" in splitLine[i]):
+                        pathSplit = splitLine[i].split("\\")
+                        return pathSplit[len(pathSplit) - 1]
+ 
     else:
         return ""
         
-def SetupMaterial(material, mainTex):
+def SetupMaterial(material, mainTexName):
     material.use_nodes = True
 
     nodes = material.node_tree.nodes
@@ -169,8 +189,8 @@ def SetupMaterial(material, mainTex):
 
     #Base texture node
     tex_node = nodes.new(type="ShaderNodeTexImage")
-    if(mainTex != None):
-        tex_node.image = getCyclesImage(mainTex)
+    if(mainTexName != None):
+        tex_node.image = getCyclesImage(os.path.join(imagesPath, mainTexName))
         links.new(tex_node.outputs["Color"], principled.inputs[0])
 
     #Find vmt for this material. If there is a color in this, output it and also try to produce a mask image for this materials main texture.
@@ -178,14 +198,27 @@ def SetupMaterial(material, mainTex):
     currentQCdata["materials"][material.name] = {}
     thisMaterialData = currentQCdata["materials"][material.name]
 
+    #If the alpha channel should be used for roughness mask, make the image and assign
+    if(basemapalphaphongmask != None):
+        phongNode = nodes.new(type="ShaderNodeTexImage")
+        #Check if the roughness folder has an image in there to use
+        phongmask = TryGetRoughnessImage(mainTexName)
+
+        if phongmask == None:
+            phongmask = CreateMaskTexture(getCyclesImage(os.path.join(imagesPath, mainTexName)), f"{material.name}_phongmask", False)
+
+        if phongmask != None:
+            phongNode.image = phongmask
+            links.new(phongNode.outputs["Color"], principled.inputs["Roughness"])
+
     if(blendtintbybasealpha != None and (float(blendtintbybasealpha) == 1.0 or float(blendtintbybasealpha) == 1)):
         #We have a material that should require a mask. Lets make one
         thisMaterialData["colourMask"] = f"{material.name}_mask"
         thisMaterialData["additive"] = (blendtintcoloroverbase != None and float(blendtintcoloroverbase) > 0)
         thisMaterialData["colourtint_base"] = colortint_base
-        CreateMaskTexture(getCyclesImage(mainTex), f"{material.name}_mask")
+        CreateMaskTexture(getCyclesImage(os.path.join(imagesPath, mainTexName)), f"{material.name}_mask", True)
 
-def CreateMaskTexture(image, name):
+def CreateMaskTexture(image, name, save):
     targetPath = os.path.join(outputPath, "Masks")
 
     if(not os.path.exists(targetPath)):
@@ -193,8 +226,8 @@ def CreateMaskTexture(image, name):
 
     # Don't make a mask when it exists already.
     targetPath = os.path.join(targetPath, name + ".png")
-    if(not os.path.exists(targetPath)):
-        mask = bpy.data.images.new(image.name + "_ColourMask", image.size[0], image.size[1], alpha=True, is_data=True)
+    if(not save or not os.path.exists(targetPath)):
+        mask = bpy.data.images.new(image.name, image.size[0], image.size[1], alpha=True, is_data=True)
         channels = mask.channels
 
         i = channels - 1
@@ -211,7 +244,10 @@ def CreateMaskTexture(image, name):
 
         mask.pixels[:] = maskpixels
         mask.update()
-        mask.save_render(targetPath)
+        if(save):
+            mask.save_render(targetPath)
+        else:
+            return mask
 
 class ConvertQCs(Operator):
     """Import fbx props using a .vmf"""
@@ -259,12 +295,17 @@ def getCyclesImage(imgpath):
     for img in bpy.data.images:
         if os.path.abspath(img.filepath) == os.path.abspath(imgpath):
             return img
-    return bpy.data.images.load(imgpath)
+    try:
+        return bpy.data.images.load(imgpath)
+    except:
+        print("Failed to get image! " + imgpath)
+        return None
 
 def GetVMTInfo(vmt_path):
     filehandle = open(vmt_path, mode='r')
     file_text = filehandle.readlines()
 
+    #Reset all material data
     global blendtintcoloroverbase
     blendtintcoloroverbase = None
 
@@ -274,18 +315,26 @@ def GetVMTInfo(vmt_path):
     global colortint_base
     colortint_base = None
 
+    global basemapalphaphongmask
+    basemapalphaphongmask = None
+
     for line in file_text:
         if param1 in line or param2 in line:
             if "255 255 255" not in line and "{" in line and "}" in line and "resultVar" not in line and "srcVar" not in line:
                 colortint_base = GetHexColour(line)
         elif blendParam in line:
-            result = re.findall(blendtintcolour_regex, line)
-            if(result != None and len(result) > 0):
-                blendtintcoloroverbase = result[0].replace('"', "")
+            blendtintcoloroverbase = GetVMTPropertyValue(line)
         elif blendEnabledParam in line:
-            result_b = re.findall(blendtintcolour_regex, line)
-            if(result_b != None and len(result_b) > 0):
-                blendtintbybasealpha = result_b[0].replace('"', "")
+            blendtintbybasealpha = GetVMTPropertyValue(line)
+        elif phongMaskParam in line:
+            basemapalphaphongmask = GetVMTPropertyValue(line)
+
+def GetVMTPropertyValue(line):
+    tmp_result = re.findall(blendtintcolour_regex, line)
+    if(tmp_result != None and len(tmp_result) > 0):
+        return tmp_result[0].replace('"', "")
+    else:
+        return None
 
 def GetHexColour(line):
     toreturn = ""
