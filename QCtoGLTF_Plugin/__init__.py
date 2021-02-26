@@ -3,7 +3,7 @@ bl_info = {
     "category": "Import",
     "blender": (2, 91, 0),
     "author": "Robert Straub (robertstraub.co.uk) | Creators.TF",
-    "version": (1, 1, 1),
+    "version": (1, 1, 2),
     "location": "File > Import",
     "description": "",
 }
@@ -13,8 +13,8 @@ import os
 import re
 import json
 from bpy_extras.io_utils import ImportHelper
-from bpy.props import StringProperty, BoolProperty, EnumProperty
-from bpy.types import Operator
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
+from bpy.types import Operator, AddonPreferences
 from datetime import datetime
 
 imagesPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VTF\PNG"
@@ -24,6 +24,7 @@ vmtsPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VMT"
 vmts = None
 outputPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\Output"
 qcPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source MDL\QC"
+forceUseRoughness_value = False
 
 classNames = ["demo", "engineer", "heavy", "medic", "pyro", "scout", "sniper", "soldier", "spy"]
 
@@ -199,7 +200,7 @@ def SetupMaterial(material, mainTexName):
     thisMaterialData = currentQCdata["materials"][material.name]
 
     #If the alpha channel should be used for roughness mask, make the image and assign
-    if(basemapalphaphongmask != None):
+    if(forceUseRoughness_value or basemapalphaphongmask != None):
         phongNode = nodes.new(type="ShaderNodeTexImage")
         #Check if the roughness folder has an image in there to use
         phongmask = TryGetRoughnessImage(mainTexName)
@@ -249,12 +250,30 @@ def CreateMaskTexture(image, name, save):
         else:
             return mask
 
+class ConvertQCsPreferences(AddonPreferences):
+    # https://docs.blender.org/api/current/bpy.types.AddonPreferences.html
+    bl_idname = __name__
+
+    forceSetupRoughness: BoolProperty(
+        name="Force Setup Roughness",
+        default=False,
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "forceSetupRoughness")
+
 class ConvertQCs(Operator):
     """Import fbx props using a .vmf"""
     bl_idname = "qc_convert.import_qc"
     bl_label = "Convert QC"
     
     def execute(self, context):
+        preferences = context.preferences
+        addon_prefs = preferences.addons[__name__].preferences
+
+        global forceUseRoughness_value
+        forceUseRoughness_value = addon_prefs.forceSetupRoughness
         subdirs = os.listdir(qcPath)
 
         for p in subdirs:
@@ -284,10 +303,12 @@ def menu_func_import(self, context):
 
 def register():
     bpy.utils.register_class(ConvertQCs)
+    bpy.utils.register_class(ConvertQCsPreferences)
     bpy.types.TOPBAR_MT_file.append(menu_func_import)
 
 def unregister():
     bpy.utils.unregister_class(ConvertQCs)
+    bpy.utils.unregister_class(ConvertQCsPreferences)
     bpy.types.TOPBAR_MT_file.remove(menu_func_import)
 
 def getCyclesImage(imgpath):
