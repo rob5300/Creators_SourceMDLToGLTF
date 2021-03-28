@@ -49,6 +49,9 @@ param2 = "$colortint_base"
 blendParam = "$blendtintcoloroverbase"
 blendEnabledParam = "$blendtintbybasealpha"
 phongMaskParam = "$basemapalphaphongmask"
+cleanFromMaterialName = {
+    ".tga"
+}
 
 blendtintbybasealpha = ""
 blendtintcoloroverbase = ""
@@ -85,6 +88,16 @@ def ReadQC(context, filePath):
 
     bpy.ops.import_scene.smd(filepath = filePath)
 
+    if len(bpy.context.selected_objects) == 0:
+        # Imported scene was empty? Try one more time with the same file name but .smd
+        filePath = filePath.replace(".qc", ".smd")
+
+        if os.path.exists(filePath):
+            bpy.ops.import_scene.smd(filepath = filePath)
+        if len(bpy.context.selected_objects) == 0:
+            print("Skipping " + filePath + " as both import attempts were empty")
+            return
+
     bpy.ops.object.select_all(action="DESELECT")
 
     for ob in bpy.context.scene.objects:
@@ -99,6 +112,10 @@ def ReadQC(context, filePath):
     for ob in bpy.context.scene.objects:
         for mat_slot in ob.material_slots:
             if(mat_slot.material != None):
+                # Clean some things from material names
+                for removeStr in cleanFromMaterialName:
+                    mat_slot.material.name = mat_slot.material.name.replace(removeStr, "")
+
                 matImage = FindImageWithName(mat_slot.material.name, "color")
 
                 #Texture not found, we need to search the vmt for its real name
