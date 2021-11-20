@@ -3,7 +3,7 @@ bl_info = {
     "category": "Import",
     "blender": (2, 91, 0),
     "author": "Robert Straub (robertstraub.co.uk) | Creators.TF",
-    "version": (1, 1, 2),
+    "version": (1, 1, 4),
     "location": "File > Import",
     "description": "",
 }
@@ -17,13 +17,13 @@ from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
 from bpy.types import Operator, AddonPreferences
 from datetime import datetime
 
-imagesPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VTF\PNG"
-roughnessPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\roughness"
+imagesPath = r"D:\ctf-ModelPreview\Assets\_SourceVTF\PNG"
+roughnessPath = r"D:\ctf-ModelPreview\Assets\roughness"
 images = None
-vmtsPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source VMT"
+vmtsPath = r"D:\ctf-ModelPreview\Assets\_SourceVMT"
 vmts = None
-outputPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\Output"
-qcPath = r"D:\TF2 Stuff\ModelPreview\tf2 assets\All Source MDL\QC"
+outputPath = r"D:\ctf-ModelPreview\Assets\Output"
+qcPath = r"D:\ctf-ModelPreview\Assets\_SourceMDL\QC"
 forceUseRoughness_value = False
 
 classNames = ["demo", "engineer", "heavy", "medic", "pyro", "scout", "sniper", "soldier", "spy"]
@@ -61,6 +61,7 @@ colortint_base = ""
 num_regex = "([^_, ,\D][0-9]{1,3})"
 blendtintcolour_regex = r'"([0-9.]+)\"'
 
+#Main function to read a QC and export it as a GLB
 def ReadQC(context, filePath):
     global currentQCdata
     global data
@@ -86,7 +87,13 @@ def ReadQC(context, filePath):
     if(os.path.exists(exportPath)):
         return
 
-    bpy.ops.import_scene.smd(filepath = filePath)
+    try:
+        #Import the qc file, using the Blender Source Tools plugin
+        bpy.ops.import_scene.smd(filepath = filePath)
+    except Exception as e:
+        ShowMessageBox("Failed to import QC, are you missing Blender Source Tools?", "Import Error", "ERROR")
+        raise e
+
 
     if len(bpy.context.selected_objects) == 0:
         # Imported scene was empty? Try one more time with the same file name but .smd
@@ -130,11 +137,13 @@ def ReadQC(context, filePath):
                 else:
                     print("Failed to get the main texture for the object: " + baseQCName)
 
+    #Export the scene as a gltf
     bpy.ops.export_scene.gltf(export_format='GLB', export_image_format='JPEG', export_animations=False, filepath=exportPath)
     
     data[baseQCName] = currentQCdata
     currentQCdata = {}
 
+    #Clean scene for next import
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
     return
@@ -276,9 +285,39 @@ class ConvertQCsPreferences(AddonPreferences):
         default=False,
     )
 
+    imagesPath: StringProperty(
+        name="Images Path",
+        default=r"D:\ctf-ModelPreview\Assets\_SourceVTF\PNG"
+    )
+
+    roughnessPath: StringProperty(
+        name="Roughness Image Path (optional)",
+        default=r""
+    )
+
+    vmtPath: StringProperty(
+        name="VMT Path",
+        default=r"D:\ctf-ModelPreview\Assets\_SourceVMT"
+    )
+
+    outputPath: StringProperty(
+        name="Output Path",
+        default=r"D:\ctf-ModelPreview\Assets\Output"
+    )
+
+    qcPath: StringProperty(
+        name="QC Path",
+        default=r"D:\ctf-ModelPreview\Assets\_SourceMDL\QC"
+    )
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "forceSetupRoughness")
+        layout.prop(self, "imagesPath")
+        layout.prop(self, "roughnessPath")
+        layout.prop(self, "vmtPath")
+        layout.prop(self, "outputPath")
+        layout.prop(self, "qcPath")
 
 class ConvertQCs(Operator):
     """Import fbx props using a .vmf"""
@@ -289,8 +328,20 @@ class ConvertQCs(Operator):
         preferences = context.preferences
         addon_prefs = preferences.addons[__name__].preferences
 
+        #Get all user set preferences
         global forceUseRoughness_value
         forceUseRoughness_value = addon_prefs.forceSetupRoughness
+        global imagesPath
+        imagesPath = addon_prefs.imagesPath
+        global roughnessPath
+        roughnessPath = addon_prefs.roughnessPath
+        global vmtPath
+        vmtPath = addon_prefs.vmtPath
+        global outputPath
+        outputPath = addon_prefs.outputPath
+        global qcPath
+        qcPath = addon_prefs.qcPath
+
         subdirs = os.listdir(qcPath)
 
         for p in subdirs:
@@ -381,6 +432,12 @@ def GetHexColour(line):
         toreturn += hex(int(r)).replace("0x", "")
 
     return toreturn
+
+def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
+    def draw(self, context):
+        self.layout.label(text=message)
+
+    bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
 if __name__ == "__main__":
     register()
